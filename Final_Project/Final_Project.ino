@@ -4,6 +4,9 @@
 #include <FS.h>
 #include <SPIFFS.h>
 #include <ESP_Mail_Client.h>
+#include <Firebase_ESP_Client.h>
+#include <addons/TokenHelper.h>
+#include <EEPROM.h>
 
 /*Define Camera Pins*/
 
@@ -53,6 +56,30 @@ const int   daylightOffset_sec = 3600;
 /* Receiver's email*/
 #define RECEIVER_EMAIL "hamidmuzaffar218@gmail.com"
 
+/*Store Number in EEPROM to make unique name of picture*/
+// define the number of bytes you want to access
+#define EEPROM_SIZE 1
+int pictureNumber = 0;
+String storage_path = "";
+String RTDB_path = "";
+
+/*Firebase Credentials*/
+// Insert Firebase project API Key
+#define API_KEY "AIzaSyBJeo4dPJ9xDmhqrKV0uYsb48ZuT63GuQ4"
+// Insert Authorized Email and Corresponding Password
+#define USER_EMAIL "hamidmuzaffar49@gmail.com"
+#define USER_PASSWORD "HamidKhan"
+// Insert Firebase storage bucket ID e.g bucket-name.appspot.com
+#define STORAGE_BUCKET_ID "esp-32-c099b.appspot.com"
+// Insert RTDB URLefine the RTDB URL */
+#define DATABASE_URL "https://esp-32-c099b-default-rtdb.asia-southeast1.firebasedatabase.app/"
+/*--------------------*/
+
+//Define Firebase Data objects
+FirebaseData fbdo;
+FirebaseAuth auth;
+FirebaseConfig configF;
+
 /* The SMTP Session object*/
 SMTPSession smtp;
 
@@ -63,7 +90,7 @@ void setup() {
   Serial.begin(115200);
   /* Connection with WIFI */
   wifiConnection();
-  
+
   if (!SPIFFS.begin(true)) {
     Serial.println("An Error has occurred while mounting SPIFFS");
     ESP.restart();
@@ -72,13 +99,17 @@ void setup() {
     delay(500);
     Serial.println("SPIFFS mounted successfully");
   }
-  
+
   /* Setting Camera Configuration */
   cameraConfiguration();
   /* Setting up Time Credentials */
   getTime();
+  /* Setting up Firebase */
+  firebaseConfiguration();
   /* Capture Photo and saved to SPIFF */
   capturePhotoSaveSpiffs();
+  /* Sending to Firebase */
+  storeIntoFirebase();
   /* Sending Mail */
   sendEmail();
 }
@@ -143,6 +174,56 @@ void cameraConfiguration() {
   }
 }
 
+void firebaseConfiguration() {
+  // Assign the api key
+  configF.api_key = API_KEY;
+  /* Assign the RTDB URL (required) */
+  configF.database_url = DATABASE_URL;
+  //Assign the user sign in credentials
+  auth.user.email = USER_EMAIL;
+  auth.user.password = USER_PASSWORD;
+  //Assign the callback function for the long running token generation task
+  configF.token_status_callback = tokenStatusCallback; //see addons/TokenHelper.h
+  Firebase.begin(&configF, &auth);
+  Firebase.reconnectWiFi(true);
+}
+
+//Specify Paths to the database
+void storage_RTDB_Path() {
+  // initialize EEPROM with predefined size
+  EEPROM.begin(EEPROM_SIZE);
+  pictureNumber = EEPROM.read(0) + 1;
+  storage_path = "/data/photo" + String(pictureNumber) + ".jpg";
+  RTDB_path = "record" + String(pictureNumber) + "/url";
+}
+
+void storeIntoFirebase() {
+  bool taskCompleted = false;
+  storage_RTDB_Path();
+  while (Firebase.ready() && !taskCompleted) {
+    taskCompleted = true;
+    Serial.print("Uploading picture... ");
+    //MIME type should be valid to avoid the download problem.
+    //The file systems for flash and SD/SDMMC can be changed in FirebaseFS.h.
+    if (Firebase.Storage.upload(&fbdo, STORAGE_BUCKET_ID /* Firebase Storage bucket id */, FILE_PHOTO /* path to local file */, mem_storage_type_flash /* memory storage type, mem_storage_type_flash and mem_storage_type_sd */, storage_path /* path of remote file stored in the bucket */, "image/jpeg" /* mime type */)) {
+      Serial.printf("\nDownload URL: %s\n", fbdo.downloadURL().c_str());
+      if (Firebase.RTDB.setString(&fbdo, RTDB_path, fbdo.downloadURL().c_str())) {
+        Serial.println("PASSED");
+        Serial.println("PATH: " + fbdo.dataPath());
+        Serial.println("TYPE: " + fbdo.dataType());
+      } else {
+        Serial.println("FAILED");
+      }
+      EEPROM.write(0, pictureNumber);
+      EEPROM.commit();
+    }
+    else {
+      taskCompleted = false;
+      Serial.println(fbdo.errorReason());
+    }
+  }
+}
+
 // Check if photo capture was successful
 bool checkPhoto( fs::FS &fs ) {
   File f_pic = fs.open( FILE_PHOTO );
@@ -151,7 +232,7 @@ bool checkPhoto( fs::FS &fs ) {
 }
 
 // Capture Photo and Save it to SPIFFS
-void capturePhotoSaveSpiffs( void ) {
+void capturePhotoSaveSpiffs() {
   camera_fb_t * fb = NULL; // pointer
   bool ok = 0; // Boolean indicating if the picture has been taken correctly
 
