@@ -6,6 +6,7 @@
 #include <ESP_Mail_Client.h>
 #include <Firebase_ESP_Client.h>
 #include <addons/TokenHelper.h>
+#include <BlynkSimpleEsp32.h>
 #include <EEPROM.h>
 
 /*Define Camera Pins*/
@@ -36,13 +37,20 @@
 /*Path and name of file to write*/
 #define FILE_PHOTO "/image.jpg"
 
+/*Pins Connection*/
+#define lock 12
+#define IR_pin 13
+#define btn 14
+
 /* The WIFI in credentials */
 #define WIFI_SSID "Dell5410"
 #define WIFI_PASSWORD "HamidKhan"
+char authentication[] = "xrPe4GpwLBBZEkC-ctNhc_mDVaeZ04UX";       //Auth Code sent by Blynk
+String url;
 
 /* For getTime() */
 String pk_time = "";
-const char* ntpServer = "pool.ntp.org";
+const char* ntpServer = "pk.pool.ntp.org";
 const long  gmtOffset_sec = 14400;
 const int   daylightOffset_sec = 3600;
 
@@ -61,7 +69,8 @@ const int   daylightOffset_sec = 3600;
 #define EEPROM_SIZE 1
 int pictureNumber = 0;
 String storage_path = "";
-String RTDB_path = "";
+String RTDB_path_url = "";
+String RTDB_path_status = "";
 
 /*Firebase Credentials*/
 // Insert Firebase project API Key
@@ -90,6 +99,8 @@ void setup() {
   Serial.begin(115200);
   /* Connection with WIFI */
   wifiConnection();
+  /* Connection with Blynk */
+  Blynk.begin(authentication, WIFI_SSID, WIFI_PASSWORD);
 
   if (!SPIFFS.begin(true)) {
     Serial.println("An Error has occurred while mounting SPIFFS");
@@ -103,19 +114,36 @@ void setup() {
   /* Setting Camera Configuration */
   cameraConfiguration();
   /* Setting up Time Credentials */
-  getTime();
+  setTimeESP();
   /* Setting up Firebase */
   firebaseConfiguration();
-  /* Capture Photo and saved to SPIFF */
-  capturePhotoSaveSpiffs();
-  /* Sending to Firebase */
-  storeIntoFirebase();
-  /* Sending Mail */
-  sendEmail();
+  /*interrupt and lock pin setup*/
+  pinMode(IR_pin, INPUT);
+  pinMode(lock, OUTPUT);
+  digitalWrite(lock, LOW);
+  pinMode(btn, INPUT);
+  digitalWrite(btn, LOW);
+  /*Sending mail after setup is completete*/
+  sendEmail("Setting Up Everything. ESP is working now");
 }
 
 void loop() {
-
+  /* Connection to the blynk */
+  Blynk.run();
+  if (digitalRead(btn) == HIGH) {
+    Serial.println("Hello World");
+    change_status();
+  }
+  if (digitalRead(IR_pin) == LOW) {
+    /* Capture Photo and saved to SPIFF */
+    capturePhotoSaveSpiffs();
+    /* Getting Time Credentials */
+    getTime();
+    /* Sending to Firebase */
+    storeIntoFirebase();
+    /* Sending Mail */
+    sendEmail("");
+  }
 }
 
 void wifiConnection() {
@@ -194,7 +222,8 @@ void storage_RTDB_Path() {
   EEPROM.begin(EEPROM_SIZE);
   pictureNumber = EEPROM.read(0) + 1;
   storage_path = "/data/photo" + String(pictureNumber) + ".jpg";
-  RTDB_path = "record" + String(pictureNumber) + "/url";
+  RTDB_path_url = "record" + String(pictureNumber) + "/url";
+  RTDB_path_status = "record" + String(pictureNumber) + "/status";
 }
 
 void storeIntoFirebase() {
@@ -207,15 +236,18 @@ void storeIntoFirebase() {
     //The file systems for flash and SD/SDMMC can be changed in FirebaseFS.h.
     if (Firebase.Storage.upload(&fbdo, STORAGE_BUCKET_ID /* Firebase Storage bucket id */, FILE_PHOTO /* path to local file */, mem_storage_type_flash /* memory storage type, mem_storage_type_flash and mem_storage_type_sd */, storage_path /* path of remote file stored in the bucket */, "image/jpeg" /* mime type */)) {
       Serial.printf("\nDownload URL: %s\n", fbdo.downloadURL().c_str());
-      if (Firebase.RTDB.setString(&fbdo, RTDB_path, fbdo.downloadURL().c_str())) {
+      url = (String)fbdo.downloadURL();
+      String l_status = "False";
+      Blynk.setProperty(V1, "urls", url);
+      if (Firebase.RTDB.setString(&fbdo, RTDB_path_url, fbdo.downloadURL().c_str()) && Firebase.RTDB.setString(&fbdo, RTDB_path_status, l_status.c_str())) {
         Serial.println("PASSED");
         Serial.println("PATH: " + fbdo.dataPath());
         Serial.println("TYPE: " + fbdo.dataType());
+        EEPROM.write(0, pictureNumber);
+        EEPROM.commit();
       } else {
         Serial.println("FAILED");
       }
-      EEPROM.write(0, pictureNumber);
-      EEPROM.commit();
     }
     else {
       taskCompleted = false;
@@ -235,55 +267,54 @@ bool checkPhoto( fs::FS &fs ) {
 void capturePhotoSaveSpiffs() {
   camera_fb_t * fb = NULL; // pointer
   bool ok = 0; // Boolean indicating if the picture has been taken correctly
-
-  do {
-    // Take a photo with the camera
-    Serial.println("Taking a photo...");
-
+  // Take a photo with the camera
+  Serial.println("Taking a photo...");
+  fb = esp_camera_fb_get();
+  while (!fb) {
+    Serial.println("Camera capture failed");
+    delay(1000);
     fb = esp_camera_fb_get();
-    if (!fb) {
-      Serial.println("Camera capture failed");
-      return;
-    }
+  }
 
-    // Photo file name
-    Serial.printf("Picture file name: %s\n", FILE_PHOTO);
-    File file = SPIFFS.open(FILE_PHOTO, FILE_WRITE);
+  // Photo file name
+  Serial.printf("Picture file name: %s\n", FILE_PHOTO);
+  File file = SPIFFS.open(FILE_PHOTO, FILE_WRITE);
 
-    // Insert the data in the photo file
-    if (!file) {
-      Serial.println("Failed to open file in writing mode");
-    }
-    else {
-      file.write(fb->buf, fb->len); // payload (image), payload length
-      Serial.print("The picture has been saved in ");
-      Serial.print(FILE_PHOTO);
-      Serial.print(" - Size: ");
-      Serial.print(file.size());
-      Serial.println(" bytes");
-    }
-    // Close the file
-    file.close();
-    esp_camera_fb_return(fb);
+  // Insert the data in the photo file
+  while (!file) {
+    Serial.println("Failed to open file in writing mode");
+    delay(1000);
+    file = SPIFFS.open(FILE_PHOTO, FILE_WRITE);
+  }
 
-    // check if file has been correctly saved in SPIFFS
+  file.write(fb->buf, fb->len); // payload (image), payload length
+  // check if file has been correctly saved in SPIFFS
+  ok = checkPhoto(SPIFFS);
+  while (!ok) {
+    delay(1000);
+    file.write(fb->buf, fb->len);
     ok = checkPhoto(SPIFFS);
-  } while ( !ok );
+  }
+  Serial.print("The picture has been saved in ");
+  Serial.print(FILE_PHOTO);
+  Serial.print(" - Size: ");
+  Serial.print(file.size());
+  Serial.println(" bytes");
+  // Close the file
+  file.close();
+  esp_camera_fb_return(fb);
 }
 
-void getTime() {
+void setTimeESP() {
   struct tm timeinfo;
-  bool time_status = true;
-  do {
-    if (!time_status)
-      Serial.println("Failed to obtain time");
-    delay(3000);
-    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-    time_status = getLocalTime(&timeinfo);
-    delay(3000);
-  } while (!time_status);
+  bool time_status;
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  time_status = getLocalTime(&timeinfo);
+  if (!time_status) {
+    Serial.println("Failed to obtain time");
+    ESP.restart();
+  }
   Serial.println("Succeed to obtain time");
-  Serial.println("Time variables");
   char t_string[36];
   strftime(t_string, 36, "%A, %B %d %Y %I:%M:%S", &timeinfo);
   pk_time = String(t_string);
@@ -291,7 +322,18 @@ void getTime() {
   Serial.println();
 }
 
-void sendEmail() {
+void getTime() {
+  struct tm timeinfo;
+  char t_string[36];
+  if (getLocalTime(&timeinfo)) {
+    strftime(t_string, 36, "%A, %B %d %Y %I:%M:%S", &timeinfo);
+    pk_time = String(t_string);
+    Serial.println(pk_time);
+    Serial.println();
+  }
+}
+
+void sendEmail(String msg) {
   smtp.debug(1);
   /* Set the callback function to get the sending results */
   smtp.callback(smtpCallback);
@@ -315,26 +357,32 @@ void sendEmail() {
   message.addRecipient("Hamid", RECEIVER_EMAIL);
 
   /*Send HTML message*/
-  String htmlMsg = "Hello World - Sent from ESP board<br><br>Time : ";
+  String htmlMsg = "";
+  if (msg == "") {
+    htmlMsg = "Hello World - Sent from ESP board<br><br>Time : ";
+  } else {
+    htmlMsg = msg;
+  }
   htmlMsg.concat(pk_time);
   message.html.content = htmlMsg.c_str();
   message.html.charSet = "utf-8";
   message.html.transfer_encoding = Content_Transfer_Encoding::enc_qp;
 
-  SMTP_Attachment att;
+  if (msg == "") {
+    SMTP_Attachment att;
+    /** Set the attachment info e.g.
+       file name, MIME type, file path, file storage type,
+       transfer encoding and content encoding
+    */
+    att.descr.filename = "image.jpg";
+    att.descr.mime = "image/jpg"; //binary data
+    att.file.path = "/image.jpg";
+    att.file.storage_type = esp_mail_file_storage_type_flash;
+    att.descr.transfer_encoding = Content_Transfer_Encoding::enc_base64;
 
-  /** Set the attachment info e.g.
-     file name, MIME type, file path, file storage type,
-     transfer encoding and content encoding
-  */
-  att.descr.filename = "image.jpg";
-  att.descr.mime = "image/jpg"; //binary data
-  att.file.path = "/image.jpg";
-  att.file.storage_type = esp_mail_file_storage_type_flash;
-  att.descr.transfer_encoding = Content_Transfer_Encoding::enc_base64;
-
-  /* Add attachment to the message */
-  message.addAttachment(att);
+    /* Add attachment to the message */
+    message.addAttachment(att);
+  }
 
   /* Connect to server with the session config */
   while (!smtp.connect(&session)) {}
@@ -369,5 +417,25 @@ void smtpCallback(SMTP_Status status) {
       ESP_MAIL_PRINTF("Subject: %s\n", result.subject);
     }
     Serial.println("----------------\n");
+    SPIFFS.remove(FILE_PHOTO);
+  }
+}
+
+void change_status() {
+  bool taskCompleted = false;
+  String l_status = "True";
+  while (Firebase.ready() && !taskCompleted) {
+    taskCompleted = true;
+    if (Firebase.RTDB.setString(&fbdo, RTDB_path_status, l_status.c_str())) {
+      Serial.println("PASSED");
+      Serial.println("PATH: " + fbdo.dataPath());
+      Serial.println("TYPE: " + fbdo.dataType());
+      EEPROM.write(0, pictureNumber);
+      EEPROM.commit();
+    }
+    else {
+      taskCompleted = false;
+      Serial.println(fbdo.errorReason());
+    }
   }
 }
