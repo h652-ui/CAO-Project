@@ -71,6 +71,7 @@ int pictureNumber = 0;
 String storage_path = "";
 String RTDB_path_url = "";
 String RTDB_path_status = "";
+String RTDB_path_date = "";
 
 /*Firebase Credentials*/
 // Insert Firebase project API Key
@@ -123,6 +124,7 @@ void setup() {
   digitalWrite(lock, LOW);
   pinMode(btn, INPUT);
   digitalWrite(btn, LOW);
+  pinMode(4,OUTPUT);
   /*Sending mail after setup is completete*/
   sendEmail("Setting Up Everything. ESP is working now");
 }
@@ -224,6 +226,7 @@ void storage_RTDB_Path() {
   storage_path = "/data/photo" + String(pictureNumber) + ".jpg";
   RTDB_path_url = "record" + String(pictureNumber) + "/url";
   RTDB_path_status = "record" + String(pictureNumber) + "/status";
+  RTDB_path_date = "record" + String(pictureNumber) + "/date";
 }
 
 void storeIntoFirebase() {
@@ -239,7 +242,7 @@ void storeIntoFirebase() {
       url = (String)fbdo.downloadURL();
       String l_status = "False";
       Blynk.setProperty(V1, "urls", url);
-      if (Firebase.RTDB.setString(&fbdo, RTDB_path_url, fbdo.downloadURL().c_str()) && Firebase.RTDB.setString(&fbdo, RTDB_path_status, l_status.c_str())) {
+      if (Firebase.RTDB.setString(&fbdo, RTDB_path_url, fbdo.downloadURL().c_str()) && Firebase.RTDB.setString(&fbdo, RTDB_path_status, l_status.c_str()) && Firebase.RTDB.setString(&fbdo, RTDB_path_date, pk_time.c_str())) {
         Serial.println("PASSED");
         Serial.println("PATH: " + fbdo.dataPath());
         Serial.println("TYPE: " + fbdo.dataType());
@@ -269,11 +272,17 @@ void capturePhotoSaveSpiffs() {
   bool ok = 0; // Boolean indicating if the picture has been taken correctly
   // Take a photo with the camera
   Serial.println("Taking a photo...");
+  digitalWrite(4, HIGH);
   fb = esp_camera_fb_get();
+  delay(1000);
+  digitalWrite(4, LOW);
   while (!fb) {
     Serial.println("Camera capture failed");
     delay(1000);
+    digitalWrite(4, HIGH);
     fb = esp_camera_fb_get();
+    delay(1000);
+    digitalWrite(4, LOW);
   }
 
   // Photo file name

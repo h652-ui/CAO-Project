@@ -1,0 +1,50 @@
+html {
+    min-height: 100%;
+    font-family: Arial, Helvetica, sans-serif;
+    background-image: linear-gradient(to bottom right, rgb(13, 13, 35), rgb(52, 52, 118), rgb(157, 0, 255));
+    background-repeat: no-repeat;
+    background-size: cover;
+    background-position: center center;
+    color: white;
+}
+
+table {
+    width: 50%;
+    margin: auto;
+    border: 1px solid white;
+    border-collapse: collapse;
+}
+
+table th {
+    background-color: #000000;
+    padding-top: 3%;
+    padding-bottom: 3%;
+}
+
+table th,
+td {
+    border: 1px solid white;
+    text-align: center;
+    padding: 2%;
+    width: 25%;
+}
+
+td img {
+    max-width: 100%;
+}
+
+tr:hover {
+    background-color: red;
+    cursor: pointer;
+}
+
+td a {
+    color: white;
+}
+
+/* th {
+    
+    text-align: left;
+    ;
+    color: white;
+  } */

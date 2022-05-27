@@ -8,9 +8,9 @@
 
 #include "camera_pins.h"
 
-#define SSID1 "8-light"
-#define PWD1 "muzaffar1962"
-char auth[] = "Mo6DtcdhWoHg9-73pr76ARdMIC5wiC_g";
+#define SSID1 "Aashir"
+#define PWD1 "12345678" 
+//char auth[] = "Mo6DtcdhWoHg9-73pr76ARdMIC5wiC_g";
 
 #define Lock 14
 #define Led 12
@@ -48,7 +48,6 @@ void handle_jpg_stream(void)
     client.write(buf, strlen(buf));
     client.write((char *)cam.getfb(), s);
     client.write(BOUNDARY, bdrLen);
-    Blynk.run();
     if (digitalRead(Lock) == HIGH) {
       digitalWrite(Led, HIGH);
       delay(1000);
@@ -94,6 +93,9 @@ void setup()
   Serial.begin(115200);
   //while (!Serial);            //wait for serial connection.
 
+  pinMode(4, INPUT);
+  digitalWrite(4, LOW);
+  
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
@@ -149,7 +151,6 @@ void setup()
   server.on("/jpg", HTTP_GET, handle_jpg);
   server.onNotFound(handleNotFound);
   server.begin();
-  Blynk.begin(auth, SSID1, PWD1);
 }
 
 void loop()

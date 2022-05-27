@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP Firebase App</title>
+
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+
+  <script src="https://www.gstatic.com/firebasejs/8.8.1/firebase-database.js"></script>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyBJeo4dPJ9xDmhqrKV0uYsb48ZuT63GuQ4",
+      authDomain: "esp-32-c099b.firebaseapp.com",
+      databaseURL: "https://esp-32-c099b-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "esp-32-c099b",
+      storageBucket: "esp-32-c099b.appspot.com",
+      messagingSenderId: "28577228422",
+      appId: "1:28577228422:web:4cc8c084a8e9cc153c1307"
+    };
+    firebase.initializeApp(firebaseConfig);
+    var database = firebase.database();
+  </script>
+  <script src="app.js" defer></script>
+  <link rel="stylesheet" href="style.css">
+
+</head>
+
+<body>
+  <h1 style="text-align: center;">Automated Bell System Data</h1>
+  <table id="h_table"></table>
+</body>
+
+</html>
