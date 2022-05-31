@@ -10,7 +10,11 @@ databasePath.on('value', (snapshot) => {
         URLReading = childSnapshot.child('url').val();
         dateTimeReading = childSnapshot.child('date').val();
         statusReading = childSnapshot.child('status').val();
-        table_html += "<tr id='" + childSnapshot.key + "'><td><img src='" + URLReading + "'></td><td>" + dateTimeReading + "</td><td>" + statusReading + "</td><td><a href='#' onclick = deleteNode('" + childSnapshot.key + "')>Delete</a></td></tr>";
+        table_html += "<tr id='" + childSnapshot.key + "'><td><img src='" + URLReading + "'></td><td>" + dateTimeReading + "</td><td>"; 
+        if(statusReading == "True")
+        table_html += "Opened</td><td><a href='#' onclick = deleteNode('" + childSnapshot.key + "')>Delete</a></td></tr>"
+        else
+          table_html+= "Closed</td><td><a href='#' onclick = deleteNode('" + childSnapshot.key + "')>Delete</a></td></tr>";
     });
     document.getElementById('h_table').innerHTML += table_html;
 }, (errorObject) => {
