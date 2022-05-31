@@ -7,6 +7,8 @@
 #include <Firebase_ESP_Client.h>
 #include <addons/TokenHelper.h>
 #include <BlynkSimpleEsp32.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
 #include <EEPROM.h>
 
 /*Define Camera Pins*/
@@ -35,18 +37,21 @@
 #endif
 
 /*Path and name of file to write*/
-#define FILE_PHOTO "/image.jpg"
+#define FILE_PHOTO "/photo.jpg"
 
 /*Pins Connection*/
-#define lock 12
-#define IR_pin 13
+#define p_btn 2
+#define lock 13
 #define btn 14
+#define IR_pin 15
+//#define buzzer 16
 
 /* The WIFI in credentials */
 #define WIFI_SSID "Dell5410"
 #define WIFI_PASSWORD "HamidKhan"
 char authentication[] = "xrPe4GpwLBBZEkC-ctNhc_mDVaeZ04UX";       //Auth Code sent by Blynk
-String url;
+String url = "";
+String local_IP = "";
 
 /* For getTime() */
 String pk_time = "";
@@ -96,6 +101,126 @@ SMTPSession smtp;
 /* Callback function to get the Email sending status */
 void smtpCallback(SMTP_Status status);
 
+/*Web Server Credentials*/
+
+const char* PARAM_INPUT_1 = "output";
+const char* PARAM_INPUT_2 = "state";
+
+// Create AsyncWebServer object on port 80
+AsyncWebServer server(80);
+
+const char index_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE HTML><html>
+<head>
+  <title>Bell System Web Server</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <style>
+        html {
+            position: absolute;
+            top: 0px;
+            bottom: 0px; 
+            right : 0px;
+            left : 0px;
+            font-family: Arial;
+            display: inline-block;
+            text-align: center;
+            background-image: linear-gradient(to bottom right, rgb(13, 13, 35), rgb(52, 52, 118), rgb(157, 0, 255));
+            background-repeat: no-repeat;
+            background-size: cover;
+            background-position: center center;
+            color: white;
+        }
+
+        h2 {
+            font-size: 3.0rem;
+        }
+
+        p {
+            font-size: 3.0rem;
+        }
+
+        body {
+            max-width: 600px;
+            margin: 0px auto;
+            padding-bottom: 25px;
+        }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 120px;
+            height: 68px;
+        }
+
+        .switch input {
+            display: none
+        }
+
+        .slider {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: red;
+            border-radius: 6px;
+            transition: .4s;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 52px;
+            width: 52px;
+            left: 8px;
+            bottom: 8px;
+            background-color: #fff;
+            -webkit-transition: .4s;
+            transition: .4s;
+            border-radius: 3px
+        }
+
+        input:checked+.slider {
+            background-color: Green;
+        }
+
+        input:checked+.slider:before {
+            -webkit-transform: translateX(52px);
+            -ms-transform: translateX(52px);
+            transform: translateX(52px);
+        }
+    </style>
+</head>
+<body>
+  <h2>Bell System Web Server</h2>
+  %BUTTONPLACEHOLDER%
+<script>function toggleCheckbox(element) {
+        var xhr = new XMLHttpRequest();
+        xhr.open("GET", "/update?output=" + element.id + "&state=1", true);
+        xhr.send();
+        setTimeout(function () {
+            element.checked =false;
+            xhr.open("GET", "/update?output=" + element.id + "&state=0", true);
+            xhr.send();
+        }, 2000);
+    }
+</script>
+</body>
+</html>
+)rawliteral";
+
+// Replaces placeholder with button section in your web page
+String processor(const String& var){
+  //Serial.println(var);
+  if(var == "BUTTONPLACEHOLDER"){
+    String buttons = "";
+    buttons += "<h4>Open The Door</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"toggleCheckbox(this)\" id=\""+String(lock)+"\"><span class=\"slider\"></span></label>";
+    return buttons;
+  }
+  return String();
+}
+
 void setup() {
   Serial.begin(115200);
   /* Connection with WIFI */
@@ -125,6 +250,11 @@ void setup() {
   pinMode(btn, INPUT);
   digitalWrite(btn, LOW);
   pinMode(4,OUTPUT);
+  pinMode(p_btn, INPUT_PULLUP);
+//  pinMode(buzzer,OUTPUT);
+//  digitalWrite(buzzer, LOW);
+  /*Starting Web Server*/
+  start_web_server();
   /*Sending mail after setup is completete*/
   sendEmail("Setting Up Everything. ESP is working now");
 }
@@ -133,8 +263,18 @@ void loop() {
   /* Connection to the blynk */
   Blynk.run();
   if (digitalRead(btn) == HIGH) {
-    Serial.println("Hello World");
     change_status();
+    digitalWrite(lock, HIGH);
+    delay(1000);
+    digitalWrite(lock, LOW);
+    delay(1000);
+  }
+  if (digitalRead(p_btn) == LOW) {
+    Serial.println("The button is pressed");
+    digitalWrite(lock, HIGH);
+    delay(1000);
+    digitalWrite(lock, LOW);
+    delay(1000);
   }
   if (digitalRead(IR_pin) == LOW) {
     /* Capture Photo and saved to SPIFF */
@@ -145,6 +285,23 @@ void loop() {
     storeIntoFirebase();
     /* Sending Mail */
     sendEmail("");
+    /*Buzzer*/
+//    digitalWrite(buzzer, HIGH);
+//    delay(3000);
+//    digitalWrite(buzzer, LOW);
+  }
+  if ((WiFi.status() != WL_CONNECTED)) 
+  {
+    Serial.println("Reconnecting to WiFi...");
+    WiFi.disconnect();
+    WiFi.reconnect();
+    if ((WiFi.status() == WL_CONNECTED))
+    {
+      Serial.print("Camera Ready! Use 'http://");
+      Serial.print(WiFi.localIP());
+      Serial.println("' to connect");
+    }
+    delay(3000);
   }
 }
 
@@ -159,6 +316,7 @@ void wifiConnection() {
   Serial.println("");
   Serial.println("WiFi connected.");
   Serial.println("IP address: ");
+  local_IP = String() + WiFi.localIP()[0] + "." + WiFi.localIP()[1] + "." + WiFi.localIP()[2] + "." +WiFi.localIP()[3];;
   Serial.println(WiFi.localIP());
   Serial.println();
 }
@@ -202,6 +360,16 @@ void cameraConfiguration() {
     Serial.printf("Camera init failed with error 0x%x", err);
     return;
   }
+
+  sensor_t * s = esp_camera_sensor_get();
+  // initial sensors are flipped vertically and colors are a bit saturated
+  if (s->id.PID == OV3660_PID) {
+    s->set_vflip(s, 1); // flip it back
+    s->set_brightness(s, 1); // up the brightness just a bit
+    s->set_saturation(s, -2); // lower the saturation
+  }
+  // drop down frame size for higher initial frame rate
+  s->set_framesize(s, FRAMESIZE_QVGA);
 }
 
 void firebaseConfiguration() {
@@ -241,12 +409,12 @@ void storeIntoFirebase() {
       Serial.printf("\nDownload URL: %s\n", fbdo.downloadURL().c_str());
       url = (String)fbdo.downloadURL();
       String l_status = "False";
-      Blynk.setProperty(V1, "urls", url);
       if (Firebase.RTDB.setString(&fbdo, RTDB_path_url, fbdo.downloadURL().c_str()) && Firebase.RTDB.setString(&fbdo, RTDB_path_status, l_status.c_str()) && Firebase.RTDB.setString(&fbdo, RTDB_path_date, pk_time.c_str())) {
         Serial.println("PASSED");
         Serial.println("PATH: " + fbdo.dataPath());
         Serial.println("TYPE: " + fbdo.dataType());
-        EEPROM.write(0, pictureNumber);
+        Blynk.setProperty(V1, "urls", url);
+        EEPROM.write(1, pictureNumber);
         EEPROM.commit();
       } else {
         Serial.println("FAILED");
@@ -273,16 +441,16 @@ void capturePhotoSaveSpiffs() {
   // Take a photo with the camera
   Serial.println("Taking a photo...");
   digitalWrite(4, HIGH);
+  delay(200);
   fb = esp_camera_fb_get();
-  delay(1000);
   digitalWrite(4, LOW);
   while (!fb) {
     Serial.println("Camera capture failed");
-    delay(1000);
     digitalWrite(4, HIGH);
+    delay(200);
     fb = esp_camera_fb_get();
-    delay(1000);
     digitalWrite(4, LOW);
+    delay(1000);    
   }
 
   // Photo file name
@@ -311,7 +479,6 @@ void capturePhotoSaveSpiffs() {
   Serial.println(" bytes");
   // Close the file
   file.close();
-  esp_camera_fb_return(fb);
 }
 
 void setTimeESP() {
@@ -321,7 +488,9 @@ void setTimeESP() {
   time_status = getLocalTime(&timeinfo);
   if (!time_status) {
     Serial.println("Failed to obtain time");
-    ESP.restart();
+    pk_time = "Default Time";
+    return;
+//    ESP.restart();
   }
   Serial.println("Succeed to obtain time");
   char t_string[36];
@@ -339,7 +508,45 @@ void getTime() {
     pk_time = String(t_string);
     Serial.println(pk_time);
     Serial.println();
+  }else{
+     pk_time = "Default Time";
+    return;
   }
+}
+
+void start_web_server(){
+  // Print ESP Local IP Address
+  Serial.println(WiFi.localIP());
+
+  // Route for root / web page
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send_P(200, "text/html", index_html, processor);
+  });
+
+  // Send a GET request to <ESP_IP>/update?output=<inputMessage1>&state=<inputMessage2>
+  server.on("/update", HTTP_GET, [] (AsyncWebServerRequest *request) {
+    String inputMessage1;
+    String inputMessage2;
+    // GET input1 value on <ESP_IP>/update?output=<inputMessage1>&state=<inputMessage2>
+    if (request->hasParam(PARAM_INPUT_1) && request->hasParam(PARAM_INPUT_2)) {
+      inputMessage1 = request->getParam(PARAM_INPUT_1)->value();
+      inputMessage2 = request->getParam(PARAM_INPUT_2)->value();
+      digitalWrite(inputMessage1.toInt(), inputMessage2.toInt());
+      change_status();
+    }
+    else {
+      inputMessage1 = "No message sent";
+      inputMessage2 = "No message sent";
+    }
+    Serial.print("GPIO: ");
+    Serial.print(inputMessage1);
+    Serial.print(" - Set to: ");
+    Serial.println(inputMessage2);
+    request->send(200, "text/plain", "OK");
+  });
+
+  // Start server
+  server.begin();
 }
 
 void sendEmail(String msg) {
@@ -368,7 +575,7 @@ void sendEmail(String msg) {
   /*Send HTML message*/
   String htmlMsg = "";
   if (msg == "") {
-    htmlMsg = "Hello World - Sent from ESP board<br><br>Time : ";
+    htmlMsg = "Someone Arrived at the Door...<br>Time : <br>Use the following link to open the door...<br><a href=\""+String(local_IP)+"\">"+String(local_IP)+"</a><br><br>Or Use Blynk App<br><br>";
   } else {
     htmlMsg = msg;
   }
@@ -383,9 +590,9 @@ void sendEmail(String msg) {
        file name, MIME type, file path, file storage type,
        transfer encoding and content encoding
     */
-    att.descr.filename = "image.jpg";
+    att.descr.filename = "photo.jpg";
     att.descr.mime = "image/jpg"; //binary data
-    att.file.path = "/image.jpg";
+    att.file.path = "/photo.jpg";
     att.file.storage_type = esp_mail_file_storage_type_flash;
     att.descr.transfer_encoding = Content_Transfer_Encoding::enc_base64;
 
