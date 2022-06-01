@@ -41,16 +41,15 @@
 
 /*Pins Connection*/
 #define p_btn 2
+#define buzzer 12
 #define lock 13
 #define btn 14
 #define IR_pin 15
-//#define buzzer 16
 
 /* The WIFI in credentials */
 #define WIFI_SSID "Dell5410"
 #define WIFI_PASSWORD "HamidKhan"
 char authentication[] = "xrPe4GpwLBBZEkC-ctNhc_mDVaeZ04UX";       //Auth Code sent by Blynk
-String url = "";
 String local_IP = "";
 
 /* For getTime() */
@@ -64,7 +63,7 @@ const int   daylightOffset_sec = 3600;
 
 /* The sign in credentials of sender*/
 #define SENDER_EMAIL "hamidmuzaffar49@gmail.com"
-#define SENDER_PWD "htarrzjejqakaxfi"
+#define SENDER_PWD "ujsteffayigryqdh"
 
 /* Receiver's email*/
 #define RECEIVER_EMAIL "hamidmuzaffar218@gmail.com"
@@ -251,8 +250,8 @@ void setup() {
   digitalWrite(btn, LOW);
   pinMode(4,OUTPUT);
   pinMode(p_btn, INPUT_PULLUP);
-//  pinMode(buzzer,OUTPUT);
-//  digitalWrite(buzzer, LOW);
+  pinMode(buzzer,OUTPUT);
+  digitalWrite(buzzer, LOW);
   /*Starting Web Server*/
   start_web_server();
   /*Sending mail after setup is completete*/
@@ -285,10 +284,12 @@ void loop() {
     storeIntoFirebase();
     /* Sending Mail */
     sendEmail("");
-    /*Buzzer*/
-//    digitalWrite(buzzer, HIGH);
-//    delay(3000);
-//    digitalWrite(buzzer, LOW);
+     /*Buzzer*/
+    digitalWrite(buzzer, HIGH);
+    delay(3000);
+    digitalWrite(buzzer, LOW);
+    /*Notify the user*/
+    Blynk.notify("Someone Arrived");
   }
   if ((WiFi.status() != WL_CONNECTED)) 
   {
@@ -407,13 +408,11 @@ void storeIntoFirebase() {
     //The file systems for flash and SD/SDMMC can be changed in FirebaseFS.h.
     if (Firebase.Storage.upload(&fbdo, STORAGE_BUCKET_ID /* Firebase Storage bucket id */, FILE_PHOTO /* path to local file */, mem_storage_type_flash /* memory storage type, mem_storage_type_flash and mem_storage_type_sd */, storage_path /* path of remote file stored in the bucket */, "image/jpeg" /* mime type */)) {
       Serial.printf("\nDownload URL: %s\n", fbdo.downloadURL().c_str());
-      url = (String)fbdo.downloadURL();
       String l_status = "False";
       if (Firebase.RTDB.setString(&fbdo, RTDB_path_url, fbdo.downloadURL().c_str()) && Firebase.RTDB.setString(&fbdo, RTDB_path_status, l_status.c_str()) && Firebase.RTDB.setString(&fbdo, RTDB_path_date, pk_time.c_str())) {
         Serial.println("PASSED");
         Serial.println("PATH: " + fbdo.dataPath());
         Serial.println("TYPE: " + fbdo.dataType());
-        Blynk.setProperty(V1, "urls", url);
         EEPROM.write(1, pictureNumber);
         EEPROM.commit();
       } else {
@@ -438,19 +437,18 @@ bool checkPhoto( fs::FS &fs ) {
 void capturePhotoSaveSpiffs() {
   camera_fb_t * fb = NULL; // pointer
   bool ok = 0; // Boolean indicating if the picture has been taken correctly
+  uint32_t randomNum = random(50000);
   // Take a photo with the camera
   Serial.println("Taking a photo...");
   digitalWrite(4, HIGH);
   delay(200);
   fb = esp_camera_fb_get();
+  Blynk.setProperty(V1, "urls", "http://"+local_IP+"/capture?_cb="+(String)randomNum);
   digitalWrite(4, LOW);
-  while (!fb) {
+  if (!fb) {
     Serial.println("Camera capture failed");
-    digitalWrite(4, HIGH);
-    delay(200);
-    fb = esp_camera_fb_get();
-    digitalWrite(4, LOW);
-    delay(1000);    
+    esp_camera_fb_return(fb);
+    return;    
   }
 
   // Photo file name
@@ -479,6 +477,7 @@ void capturePhotoSaveSpiffs() {
   Serial.println(" bytes");
   // Close the file
   file.close();
+  esp_camera_fb_return(fb); 
 }
 
 void setTimeESP() {
@@ -488,9 +487,9 @@ void setTimeESP() {
   time_status = getLocalTime(&timeinfo);
   if (!time_status) {
     Serial.println("Failed to obtain time");
-    pk_time = "Default Time";
-    return;
-//    ESP.restart();
+//    pk_time = "Default Time";
+//    return;
+    ESP.restart();
   }
   Serial.println("Succeed to obtain time");
   char t_string[36];
@@ -508,9 +507,6 @@ void getTime() {
     pk_time = String(t_string);
     Serial.println(pk_time);
     Serial.println();
-  }else{
-     pk_time = "Default Time";
-    return;
   }
 }
 
