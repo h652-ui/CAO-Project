@@ -17,7 +17,7 @@ The interfaces that I used to open the door are the below two:
 <li>Blynk App</li>
 </ul>
 SShots of the Web Server is given below:
-<img src="https://github.com/h652-ui/CAO-Project/blob/main/Final_Project/Screenshot 2022-06-01 182516.jpg">
+<img src="https://github.com/h652-ui/CAO-Project/blob/main/Final_Project/Screenshots/Screenshot%202022-06-01%20182516.jpg">
 
 # Used Technologies
 The technologies that is used in my system are as follows:
